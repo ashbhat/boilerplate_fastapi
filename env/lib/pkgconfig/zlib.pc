@@ -1,0 +1,13 @@
+prefix=/Users/ashbhat/Developer/boilerplate_fastapi/env
+exec_prefix=/Users/ashbhat/Developer/boilerplate_fastapi/env
+libdir=/Users/ashbhat/Developer/boilerplate_fastapi/env/lib
+sharedlibdir=/Users/ashbhat/Developer/boilerplate_fastapi/env/lib
+includedir=/Users/ashbhat/Developer/boilerplate_fastapi/env/include
+
+Name: zlib
+Description: zlib compression library
+Version: 1.2.13
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -lz
+Cflags: -I${includedir}
