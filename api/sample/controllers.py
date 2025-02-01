@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from sample.schemas import EchoPayload
-from sample import services
+from api.sample.schemas import EchoPayload
+from api.sample import services
 
 router = APIRouter(
     prefix="/sample",
