@@ -17,12 +17,13 @@ pip install -r requirements.txt
 ```
 
 ## Step 3: Setup Database
-You can install requirements with the following command. [Install Postgres](https://postgresapp.com) first if you haven't already. 
+Create a local database with the following command. If you choose a different name, make sure to update it in your .env file.
+[Install Postgres](https://postgresapp.com) first if you haven't already. 
 ```bash
-CREATE DATABASE backend_db;
+createdb backend_db;
 ```
 
-Then, create your .env file. Make sure to set DB_USER and DB_PASS to the values on your machine.
+Then, create your .env file. Make sure to set DB_USER and DB_PASS to the values on your machine. These are blank by default.
 ```bash
 DB_HOST=localhost
 DB_PORT=5432
@@ -30,10 +31,13 @@ DB_NAME=backend_db
 DB_USER=
 DB_PASSWORD=
 ```
+
 Now, let's get our database up to speed. Run all migrations with this command:
 ```bash
 alembic upgrade head
 ```
+
+Your database is now created with a single table called SampleTable. You can check it out under _meta/_migrations/versions/50f2356dd61a_first_revision.py
 
 ## Step 4: Starting the Server
 You can start the server with the following command
