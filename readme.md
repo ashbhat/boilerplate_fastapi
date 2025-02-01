@@ -3,7 +3,7 @@ This boilerplate is designed to help get new FastAPI projects off the ground qui
 
 
 ## Step 1: Conda Environment
-Create a new miniconda environment.
+Create a new miniconda environment. [Install Miniconda](https://conda.io/projects/conda/en/latest/user-guide/install/index.html) first if you haven't already. This will let you create a virtual environment to give you a clean environment to work in.
 
 ```bash
 conda create -n fde_backend python=3.9
