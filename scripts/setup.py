@@ -13,7 +13,7 @@ from pathlib import Path
 # Works from any directory without installing this repository as a package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.bootstrap.cloud import Cloud, CommandError, Runner
-from scripts.bootstrap.config import Config, ROOT, neon_url, render_workflow
+from scripts.bootstrap.config import Config, ROOT, neon_url, direct_neon_url, render_workflow
 
 
 def ask(label, default=None, validate=None, secret=False):
@@ -149,16 +149,12 @@ def setup(dry_run=False):
             print('Cancelled. No resources or files changed.')
             return
     same_resources = previous and (previous.project, previous.resource_id) == (c.project, c.resource_id)
-    replace = not same_resources or confirm('Paste new Neon URLs (rotate stored credentials)?', False)
+    replace = not same_resources or confirm('Paste a new Neon URL (rotate stored credentials)?', False)
     database_url = migration_url = None
     if replace:
         print('\nCopy the PostgreSQL connection string from Neon. Input is hidden; do not paste a psql command.')
         database_url = ask('Neon database URL', validate=neon_url, secret=True)
-        if '-pooler.' in database_url.split('@')[-1] or not confirm('Use this direct URL for migrations too?', True):
-            migration_url = ask('Direct Neon migration URL (connection pooling OFF)',
-                                validate=lambda value: neon_url(value, direct=True), secret=True)
-        else:
-            migration_url = database_url
+        migration_url = direct_neon_url(database_url)
         print('URL format validated. Connectivity and permissions will be checked by the migration job on deployment.')
     if not confirm('Create/configure these resources and write deployment files now?', False):
         print('Cancelled. No resources or files changed.')
@@ -184,7 +180,7 @@ def main():
         return 1
     except (RuntimeError, ValueError, TypeError, KeyError, OSError) as exc:
         print(f'\nSetup failed: {exc}', file=sys.stderr)
-        print('Fix the issue and rerun. Existing resources are retained; choose new URLs if secrets were not populated.', file=sys.stderr)
+        print('Fix the issue and rerun. Existing resources are retained; paste the URL again if secrets were not populated.', file=sys.stderr)
         return 1
     return 0
 

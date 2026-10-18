@@ -7,7 +7,7 @@ import scripts.setup as wizard
 import unittest
 from unittest.mock import patch
 
-from scripts.bootstrap.config import Config, neon_url, render_workflow
+from scripts.bootstrap.config import Config, neon_url, direct_neon_url, render_workflow
 from scripts.setup import ask, confirm, choose
 from scripts.bootstrap.cloud import Cloud, CommandError, Runner
 
@@ -26,9 +26,11 @@ class ConfigTests(unittest.TestCase):
                 neon_url(url)
             self.assertNotIn('SECRET', str(caught.exception))
 
-    def test_migrations_reject_pooled_host(self):
-        with self.assertRaisesRegex(ValueError, 'direct'):
-            neon_url('postgresql://me:pass@ep-test-pooler.neon.tech/app?sslmode=require', direct=True)
+    def test_direct_url_changes_only_pooled_hostname(self):
+        url = 'postgresql://me:p%40ss-pooler.@ep-test-pooler.us-east-2.aws.neon.tech:5432/app?sslmode=require&channel_binding=require'
+        expected = 'postgresql://me:p%40ss-pooler.@ep-test.us-east-2.aws.neon.tech:5432/app?sslmode=require&channel_binding=require'
+        self.assertEqual(direct_neon_url(url), expected)
+        self.assertEqual(direct_neon_url(expected), expected)
 
     def test_render_and_roundtrip_no_unresolved_placeholders(self):
         c = sample()
@@ -298,7 +300,7 @@ class WizardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', return_value=secret), \
                 patch.object(Cloud, 'provision', side_effect=AssertionError('Unexpected provisioning')):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', '', 'no'])
+            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'no'])
             self.assertEqual(list(root.iterdir()), [])
             self.assertNotIn('SECRET', output)
             self.assertIn('Cancelled', output)
@@ -309,7 +311,7 @@ class WizardTests(unittest.TestCase):
                 patch.object(Cloud, 'provision', side_effect=CommandError('PERMISSION_DENIED')):
             root = Path(directory)
             with self.assertRaises(CommandError):
-                self.run_wizard(root, ['', 'my-project', '', '', '', '', '', 'yes'])
+                self.run_wizard(root, ['', 'my-project', '', '', '', '', 'yes'])
             self.assertNotIn('SECRET', (root / 'deploy/config.json').read_text())
             self.assertFalse((root / '.github/workflows/deploy.yml').exists())
 
@@ -331,7 +333,7 @@ class WizardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', return_value=secret), \
                 patch.object(Cloud, 'provision', provision):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', '', 'yes'])
+            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'yes'])
             self.assertEqual(provisioned, [(secret, secret)])
             self.assertTrue(json.loads((root / 'deploy/config.json').read_text())['public'])
             from dataclasses import replace
@@ -340,6 +342,18 @@ class WizardTests(unittest.TestCase):
                 if path.is_file():
                     self.assertNotIn('SECRET', path.read_text())
             self.assertNotIn('SECRET', output)
+
+    def test_pooled_url_needs_only_one_secret_prompt(self):
+        secret = 'postgresql://user:SECRET@ep-test-pooler.neon.tech/app?sslmode=require'
+        direct = 'postgresql://user:SECRET@ep-test.neon.tech/app?sslmode=require'
+        provisioned = []
+        def provision(cloud, database_url, migration_url):
+            provisioned.append((database_url, migration_url))
+        with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', side_effect=[secret]), \
+                patch.object(Cloud, 'provision', provision):
+            output = self.run_wizard(Path(directory), ['', 'my-project', '', '', '', '', 'yes'])
+        self.assertEqual(provisioned, [(secret, direct)])
+        self.assertNotIn('SECRET', output)
 
 
 if __name__ == '__main__':

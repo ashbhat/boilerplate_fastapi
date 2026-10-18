@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def neon_url(value, *, direct=False):
+def neon_url(value):
     value = value.strip()
     try:
         url = urlsplit(value)
@@ -23,9 +23,17 @@ def neon_url(value, *, direct=False):
         valid = False
     if not valid:
         raise ValueError('Paste a Neon PostgreSQL URL with user, password, database and sslmode=require (or verify-full).')
-    if direct and '-pooler.' in url.hostname:
-        raise ValueError('Migrations need a direct Neon URL. Turn connection pooling off in Neon and copy that URL.')
     return 'postgresql://' + value.split('://', 1)[1]
+
+
+def direct_neon_url(value):
+    """Derive Neon's direct endpoint without changing credentials or URL options."""
+    url = urlsplit(neon_url(value))
+    credentials, host = url.netloc.rsplit('@', 1)
+    endpoint, separator, domain = host.partition('.')
+    if endpoint.endswith('-pooler'):
+        endpoint = endpoint[:-len('-pooler')]
+    return url._replace(netloc=f'{credentials}@{endpoint}{separator}{domain}').geturl()
 
 
 @dataclass(frozen=True)
