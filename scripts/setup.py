@@ -152,7 +152,7 @@ def setup(dry_run=False):
     report(f'\nProject: {project} | Region: {region} | Service: {service}')
     print(f'GitHub: {c.repository} | Branch: {branch} | Access: {"public" if public else "authenticated"}')
     print(f'Configure registry {c.resource_id}, two service accounts, GitHub OIDC trust, and two database secrets.')
-    print('The deployer receives Cloud Run Admin and Service Usage Consumer in this project;')
+    print('The deployer receives Cloud Run Admin, Service Usage Consumer and Logs Viewer in this project;')
     print('registry, runtime impersonation and secret access are scoped to the created resources.')
     report('Setup creates billable supporting resources; it does not deploy or run migrations.', 'warning')
     report('After setup, review the proposed changes and open a PR. Merging it starts deployment.')

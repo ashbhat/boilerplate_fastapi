@@ -100,7 +100,7 @@ class Cloud:
         print('Enabling Google Cloud APIs...')
         self.run(['services', 'enable', 'run.googleapis.com', 'artifactregistry.googleapis.com',
                   'secretmanager.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com',
-                  'sts.googleapis.com', 'cloudresourcemanager.googleapis.com'])
+                  'sts.googleapis.com', 'cloudresourcemanager.googleapis.com', 'logging.googleapis.com'])
         self.check_run_resources()
         print('Configuring image registry and service accounts...')
         self.owned(['artifacts', 'repositories', 'describe', c.resource_id, f'--location={c.region}'],
@@ -111,7 +111,7 @@ class Cloud:
                        ['iam', 'service-accounts', 'create', email.split('@')[0],
                         f'--description=boilerplate:{c.resource_id}'], account=True)
         member = f'serviceAccount:{c.deployer}'
-        for role in ('roles/run.admin', 'roles/serviceusage.serviceUsageConsumer'):
+        for role in ('roles/run.admin', 'roles/serviceusage.serviceUsageConsumer', 'roles/logging.viewer'):
             self.bind(['projects', 'add-iam-policy-binding', c.project], member, role)
         self.bind(['artifacts', 'repositories', 'add-iam-policy-binding', c.resource_id,
                    f'--location={c.region}'], member, 'roles/artifactregistry.writer')

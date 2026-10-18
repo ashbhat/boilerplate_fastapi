@@ -494,5 +494,34 @@ class TerminalColorTests(unittest.TestCase):
             self.assertEqual(wizard.paint('Hello', 'success'), '\033[32mHello\033[0m')
 
 
+
+class MigrationLogTests(unittest.TestCase):
+    def test_logs_printed_on_success_and_failure_without_hiding_exit_status(self):
+        import os
+        import subprocess
+        import yaml
+        workflow = yaml.safe_load(render_workflow(sample()))
+        script = next(s['run'] for s in workflow['jobs']['deploy']['steps']
+                      if s.get('name') == 'Run database migrations')
+        for migration_status, log_status in ((0, 0), (7, 0), (7, 9), (0, 9)):
+            with self.subTest(migration_status=migration_status, log_status=log_status), tempfile.TemporaryDirectory() as directory:
+                binary = Path(directory) / 'gcloud'
+                binary.write_text('''#!/bin/bash
+if [[ "$*" == "run jobs execute "* ]]; then exit "$MIGRATION_STATUS"; fi
+if [[ "$*" == "run jobs logs read "* ]]; then
+  echo "migration log output"
+  exit "$LOG_STATUS"
+fi
+''')
+                binary.chmod(0o755)
+                env = {**os.environ, 'PATH': directory + os.pathsep + os.environ['PATH'],
+                       'PROJECT': 'project', 'REGION': 'us-central1', 'IMAGE': 'image',
+                       'RESOURCE': 'sample', 'RUNTIME': 'runtime',
+                       'MIGRATION_STATUS': str(migration_status), 'LOG_STATUS': str(log_status)}
+                result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, migration_status, result.stderr)
+                self.assertIn('migration log output', result.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

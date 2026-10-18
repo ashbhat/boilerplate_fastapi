@@ -62,8 +62,35 @@ jobs:
             --command=alembic --args=upgrade,head \
             --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=600s \
             --memory=512Mi --cpu=1 --quiet
+          started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          migration_status=0
           gcloud run jobs execute "$RESOURCE-migrate" \
-            --project="$PROJECT" --region="$REGION" --wait --quiet
+            --project="$PROJECT" --region="$REGION" --wait --quiet || migration_status=$?
+          finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "::group::Migration logs (this run's time window; up to 1000 entries)"
+          # Cloud Logging ingestion can lag behind job completion.
+          for attempt in 1 2 3; do
+            logs=''
+            log_status=0
+            logs=$(gcloud run jobs logs read "$RESOURCE-migrate" \
+              --project="$PROJECT" --region="$REGION" --order=asc --limit=1000 \
+              --log-filter="timestamp>=\"$started\" AND timestamp<=\"$finished\"") || log_status=$?
+            printf '%s\n' "$logs"
+            if [ "$log_status" -ne 0 ]; then
+              echo "::warning::Could not read migration logs. Rerun setup to grant the deployer Logs Viewer access."
+              break
+            fi
+            if [ -n "$logs" ]; then break; fi
+            if [ "$attempt" -lt 3 ]; then sleep 5; fi
+          done
+          if [ -z "$logs" ]; then
+            echo "::warning::Migration logs are not available yet; check Cloud Logging if needed."
+          fi
+          echo "::endgroup::"
+          if [ "$migration_status" -ne 0 ]; then
+            echo "::error::Database migration failed; API deployment will not proceed."
+          fi
+          exit "$migration_status"
       - name: Deploy API
         shell: bash
         run: |
