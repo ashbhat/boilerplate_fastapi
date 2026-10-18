@@ -184,3 +184,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+# Cloud auth and local secrets
+.env.*
+!.env.example
+gha-creds-*.json
+deploy/*.tmp
