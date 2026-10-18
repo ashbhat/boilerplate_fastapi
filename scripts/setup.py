@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Interactive Neon / Cloud Run bootstrap. Requires Python 3.9+, gcloud and gh."""
 import argparse
+import os
 import getpass
 import warnings
 import difflib
@@ -13,7 +14,20 @@ from pathlib import Path
 # Works from any directory without installing this repository as a package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.bootstrap.cloud import Cloud, CommandError, Runner
+from scripts.bootstrap.github import open_deployment_pr
 from scripts.bootstrap.config import Config, ROOT, neon_url, direct_neon_url, render_workflow
+
+
+def paint(message, tone='info', stream=None):
+    stream = stream or sys.stdout
+    if not stream.isatty() or 'NO_COLOR' in os.environ or os.getenv('TERM') == 'dumb':
+        return message
+    colors = {'info': '36', 'prompt': '1;36', 'success': '32', 'warning': '33', 'error': '31'}
+    return f'\033[{colors[tone]}m{message}\033[0m'
+
+
+def report(message, tone='info'):
+    print(paint(message, tone))
 
 
 def ask(label, default=None, validate=None, secret=False):
@@ -23,42 +37,42 @@ def ask(label, default=None, validate=None, secret=False):
             with warnings.catch_warnings():
                 warnings.simplefilter('error', getpass.GetPassWarning)
                 try:
-                    value = getpass.getpass(f'{label}: ').strip()
+                    value = getpass.getpass(paint(f'{label}: ', 'prompt')).strip()
                 except getpass.GetPassWarning as exc:
                     raise RuntimeError('A terminal is required for hidden database input.') from exc
         else:
-            value = input(f'{label}{suffix}: ').strip()
+            value = input(paint(f'{label}{suffix}: ', 'prompt')).strip()
         value = value or default
         if not value:
-            print('Please enter a value.')
+            report('Please enter a value.', 'warning')
             continue
         try:
             return validate(value) if validate else value
         except ValueError as exc:
-            print(str(exc))
+            report(str(exc), 'warning')
 
 
 def confirm(label, default=False):
     while True:
-        value = input(f'{label} [{"Y/n" if default else "y/N"}]: ').strip().lower()
+        value = input(paint(f'{label} [{"Y/n" if default else "y/N"}]: ', 'prompt')).strip().lower()
         if not value:
             return default
         if value in ('yes', 'y'):
             return True
         if value in ('no', 'n'):
             return False
-        print('Please answer yes or no.')
+        report('Please answer yes or no.', 'warning')
 
 
 def choose(label, options):
-    print(label)
+    report(label)
     for i, option in enumerate(options, 1):
         print(f'  {i}. {option}')
     while True:
-        value = input('Choose a number [1]: ').strip() or '1'
+        value = input(paint('Choose a number [1]: ', 'prompt')).strip() or '1'
         if value.isdigit() and 1 <= int(value) <= len(options):
             return int(value) - 1
-        print(f'Choose a number from 1 to {len(options)}.')
+        report(f'Choose a number from 1 to {len(options)}.', 'warning')
 
 
 def validated(field):
@@ -98,7 +112,7 @@ def setup(dry_run=False):
         raise RuntimeError('Run gcloud auth login first.')
     config_path = ROOT / 'deploy/config.json'
     previous = Config.from_dict(json.loads(config_path.read_text())) if config_path.exists() else None
-    print('Set up deployment for this FastAPI project. No database is created in Neon.')
+    report('Set up deployment for this FastAPI project. No database is created in Neon.')
     print(f'Google Cloud account: {account}')
     choose('Deployment destination', ['Google Cloud — Cloud Run'])
     current_project = runner.run(['gcloud', 'config', 'get-value', 'project']).strip()
@@ -135,13 +149,13 @@ def setup(dry_run=False):
                owner_id=str(repo['owner']['id']), branch=branch, public=public)
     workflow = render_workflow(c)
     serialized = json.dumps(c.to_dict(), indent=2) + '\n'
-    print(f'\nProject: {project} | Region: {region} | Service: {service}')
+    report(f'\nProject: {project} | Region: {region} | Service: {service}')
     print(f'GitHub: {c.repository} | Branch: {branch} | Access: {"public" if public else "authenticated"}')
     print(f'Configure registry {c.resource_id}, two service accounts, GitHub OIDC trust, and two database secrets.')
     print('The deployer receives Cloud Run Admin and Service Usage Consumer in this project;')
     print('registry, runtime impersonation and secret access are scoped to the created resources.')
-    print('Setup creates billable supporting resources; it does not deploy or run migrations.')
-    print('Write deploy/config.json and .github/workflows/deploy.yml. Commit these after setup succeeds.')
+    report('Setup creates billable supporting resources; it does not deploy or run migrations.', 'warning')
+    report('After setup, review the proposed changes and open a PR. Merging it starts deployment.')
     if dry_run:
         print('\nPreview only: no files, credentials or cloud resources were changed.\n')
         print(workflow)
@@ -154,7 +168,7 @@ def setup(dry_run=False):
     cloud = Cloud(c, runner)
     secrets_ready = same_resources and cloud.database_secrets_ready()
     if same_resources and not secrets_ready:
-        print('Database credentials are not saved or unavailable. Please paste your Neon URL to finish setup.')
+        report('Database credentials are not saved or unavailable. Please paste your Neon URL to finish setup.', 'warning')
     replace = not secrets_ready or confirm('Paste a new Neon URL (rotate stored credentials)?', False)
     database_url = migration_url = None
     if replace:
@@ -169,10 +183,22 @@ def setup(dry_run=False):
     write_file(config_path, serialized)
     cloud.provision(database_url, migration_url)
     write_file(ROOT / '.github/workflows/deploy.yml', workflow)
-    print('\nSetup complete. Review and commit deploy/config.json and .github/workflows/deploy.yml,')
-    print(f'then push to {branch}. The workflow builds, migrates and deploys your API.')
-    print('You can also run Deploy from GitHub Actions once the workflow is on the default branch.')
-    print('If initial deployment hits IAM propagation delays, wait a few minutes and rerun it.')
+    report('\nCloud setup complete. Deployment files are ready.', 'success')
+    try:
+        pr_url = open_deployment_pr(c, runner, ROOT, confirm, report)
+    except (CommandError, OSError) as exc:
+        raise RuntimeError(f'Cloud setup completed, but the deployment PR could not be opened: {exc}. '
+                           'Your generated files are saved. Fix the issue and rerun setup; existing resources will be reused.') from exc
+    if pr_url:
+        report(f'\nPull request: {pr_url}', 'success')
+        report(f'Next: review the PR, wait for CI to pass, then merge it into {branch}.', 'prompt')
+        report('Merging starts the Deploy workflow: checks → build → migrations → public API.')
+        report(f'Follow deployment: https://github.com/{c.repository}/actions')
+        report('The successful Deploy run summary will contain your API URL.')
+    elif pr_url is None:
+        report('Next: use Actions → Deploy → Run workflow to deploy the current configuration.', 'prompt')
+        report(f'Select branch {branch}: https://github.com/{c.repository}/actions')
+    report('If the first deployment encounters IAM propagation delays, wait a few minutes and rerun it.', 'warning')
 
 
 def main():
@@ -185,7 +211,7 @@ def main():
         print('\nSetup cancelled. If provisioning started, rerun to resume; existing resources are retained.')
         return 1
     except (RuntimeError, ValueError, TypeError, KeyError, OSError) as exc:
-        print(f'\nSetup failed: {exc}', file=sys.stderr)
+        print(paint(f'\nSetup failed: {exc}', 'error', sys.stderr), file=sys.stderr)
         print('Fix the issue and rerun. Existing resources are retained; paste the URL again if secrets were not populated.', file=sys.stderr)
         return 1
     return 0

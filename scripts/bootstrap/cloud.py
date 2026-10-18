@@ -9,9 +9,9 @@ class CommandError(RuntimeError):
 
 
 class Runner:
-    def run(self, args, stdin=None):
+    def run(self, args, stdin=None, env=None):
         try:
-            result = subprocess.run(args, input=stdin, text=True, capture_output=True, check=False)
+            result = subprocess.run(args, input=stdin, text=True, capture_output=True, check=False, env=env)
         except OSError as exc:
             raise CommandError(f'Could not run {args[0]}; check installation.') from exc
         if result.returncode:

@@ -52,6 +52,6 @@ Run the setup script and follow the prompts to configure your deployment. Google
 python scripts/setup.py
 ```
 
-The script sets up the supporting resources and creates or updates `.github/workflows/deploy.yml`, asking before overwriting changes. Commit the generated files and push to your configured deployment branch to deploy.
+The script sets up the supporting resources and creates or updates `.github/workflows/deploy.yml`, asking before overwriting changes. It then previews the changes and opens a pull request. Review the PR, wait for checks to pass, and merge it to start deployment. The Deploy workflow summary contains your API URL.
 
 Already configured? Keep using your existing workflow. Run the script again only when you need to update your setup.

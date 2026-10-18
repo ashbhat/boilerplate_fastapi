@@ -314,6 +314,7 @@ class WizardTests(unittest.TestCase):
     def run_wizard(self, root, inputs, dry_run=False):
         output = io.StringIO()
         with patch.object(wizard, 'ROOT', root), patch.object(wizard, 'Runner', ReadOnlyRunner), \
+                patch.object(wizard, 'open_deployment_pr', return_value='https://github.com/ash/my-api/pull/1'), \
                 patch('shutil.which', return_value='/fake/bin'), \
                 patch('builtins.input', side_effect=inputs), \
                 contextlib.redirect_stdout(output):
@@ -422,6 +423,8 @@ class WizardTests(unittest.TestCase):
             output = self.run_wizard(root, ['', 'my-project', '', 'yes'])
             self.assertEqual(provisioned, [(secret, secret)])
             self.assertTrue(json.loads((root / 'deploy/config.json').read_text())['public'])
+            self.assertIn('https://github.com/ash/my-api/pull/1', output)
+            self.assertIn('wait for CI to pass, then merge it into main', output)
             from dataclasses import replace
             self.assertEqual((root / '.github/workflows/deploy.yml').read_text(), render_workflow(replace(sample(), public=True)))
             for path in root.rglob('*'):
@@ -472,6 +475,23 @@ class WizardTests(unittest.TestCase):
             (root / 'deploy/config.json').write_text(json.dumps(replace(sample(), public=True).to_dict(), indent=2) + '\n')
             self.run_wizard(root, ['', 'my-project', '', 'no', 'yes'])
             self.assertEqual(provisioned, [(None, None)])
+
+class TerminalColorTests(unittest.TestCase):
+    def test_colors_disabled_for_redirected_output(self):
+        with patch('sys.stdout.isatty', return_value=False):
+            self.assertEqual(wizard.paint('Hello', 'success'), 'Hello')
+
+    def test_colors_respect_no_color_and_dumb_terminal(self):
+        import os
+        with patch('sys.stdout.isatty', return_value=True), patch.dict(os.environ, {'NO_COLOR': ''}):
+            self.assertEqual(wizard.paint('Hello', 'success'), 'Hello')
+        with patch('sys.stdout.isatty', return_value=True), patch.dict(os.environ, {'TERM': 'dumb'}):
+            self.assertEqual(wizard.paint('Hello', 'success'), 'Hello')
+
+    def test_interactive_success_is_green_with_reset(self):
+        import os
+        with patch('sys.stdout.isatty', return_value=True), patch.dict(os.environ, {'TERM': 'xterm'}, clear=True):
+            self.assertEqual(wizard.paint('Hello', 'success'), '\033[32mHello\033[0m')
 
 
 if __name__ == '__main__':
