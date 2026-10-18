@@ -127,7 +127,7 @@ def setup(dry_run=False):
         service_default = 'my-api'
     service = ask('Cloud Run service name', service_default, validated('service'))
     branch = ask('Deploy when this branch is pushed', previous.branch if previous else repo['default_branch'], validated('branch'))
-    public = confirm('Allow public, unauthenticated access to the API?', previous.public if previous else False)
+    public = True
     c = Config(project=project, project_number=str(project_info['projectNumber']), region=region,
                service=service, repository=repo['full_name'], repository_id=str(repo['id']),
                owner_id=str(repo['owner']['id']), branch=branch, public=public)

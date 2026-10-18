@@ -261,17 +261,18 @@ class WizardTests(unittest.TestCase):
 
     def test_enter_accepts_active_gcloud_project(self):
         with tempfile.TemporaryDirectory() as directory:
-            output = self.run_wizard(Path(directory), [''] * 7, dry_run=True)
+            output = self.run_wizard(Path(directory), [''] * 6, dry_run=True)
             self.assertIn('Project: active-project |', output)
+            self.assertIn('Access: public', output)
 
     def test_typed_project_overrides_gcloud_default(self):
         with tempfile.TemporaryDirectory() as directory:
-            output = self.run_wizard(Path(directory), ['', 'other-project', '', '', '', '', ''], dry_run=True)
+            output = self.run_wizard(Path(directory), ['', 'other-project', '', '', '', ''], dry_run=True)
             self.assertIn('Project: other-project |', output)
 
     def test_unset_gcloud_project_requires_input(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(ReadOnlyRunner, 'current_project', '(unset)'):
-            output = self.run_wizard(Path(directory), ['', '', 'typed-project', '', '', '', '', ''], dry_run=True)
+            output = self.run_wizard(Path(directory), ['', '', 'typed-project', '', '', '', ''], dry_run=True)
             self.assertIn('Please enter a value.', output)
             self.assertIn('Project: typed-project |', output)
 
@@ -280,13 +281,14 @@ class WizardTests(unittest.TestCase):
             root = Path(directory)
             (root / 'deploy').mkdir()
             (root / 'deploy/config.json').write_text(json.dumps(sample().to_dict()))
-            output = self.run_wizard(root, [''] * 7, dry_run=True)
+            output = self.run_wizard(root, [''] * 6, dry_run=True)
             self.assertIn('Project: active-project |', output)
+            self.assertIn('Access: public', output)
 
     def test_dry_run_never_prompts_for_secrets_or_writes_files(self):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', side_effect=AssertionError('Secret prompt')):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', ''], dry_run=True)
+            output = self.run_wizard(root, ['', 'my-project', '', '', '', ''], dry_run=True)
             self.assertEqual(list(root.iterdir()), [])
             self.assertIn('Preview only', output)
             self.assertIn('name: Deploy', output)
@@ -296,7 +298,7 @@ class WizardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', return_value=secret), \
                 patch.object(Cloud, 'provision', side_effect=AssertionError('Unexpected provisioning')):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', '', '', 'no'])
+            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', '', 'no'])
             self.assertEqual(list(root.iterdir()), [])
             self.assertNotIn('SECRET', output)
             self.assertIn('Cancelled', output)
@@ -307,7 +309,7 @@ class WizardTests(unittest.TestCase):
                 patch.object(Cloud, 'provision', side_effect=CommandError('PERMISSION_DENIED')):
             root = Path(directory)
             with self.assertRaises(CommandError):
-                self.run_wizard(root, ['', 'my-project', '', '', '', '', '', '', 'yes'])
+                self.run_wizard(root, ['', 'my-project', '', '', '', '', '', 'yes'])
             self.assertNotIn('SECRET', (root / 'deploy/config.json').read_text())
             self.assertFalse((root / '.github/workflows/deploy.yml').exists())
 
@@ -317,7 +319,7 @@ class WizardTests(unittest.TestCase):
             target = root / '.github/workflows/deploy.yml'
             target.parent.mkdir(parents=True)
             target.write_text('user changes\n')
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', '', 'no'])
+            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'no'])
             self.assertEqual(target.read_text(), 'user changes\n')
             self.assertIn('Cancelled', output)
 
@@ -329,9 +331,11 @@ class WizardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', return_value=secret), \
                 patch.object(Cloud, 'provision', provision):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', '', '', 'yes'])
+            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', '', 'yes'])
             self.assertEqual(provisioned, [(secret, secret)])
-            self.assertEqual((root / '.github/workflows/deploy.yml').read_text(), render_workflow(sample()))
+            self.assertTrue(json.loads((root / 'deploy/config.json').read_text())['public'])
+            from dataclasses import replace
+            self.assertEqual((root / '.github/workflows/deploy.yml').read_text(), render_workflow(replace(sample(), public=True)))
             for path in root.rglob('*'):
                 if path.is_file():
                     self.assertNotIn('SECRET', path.read_text())
