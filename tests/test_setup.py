@@ -112,6 +112,22 @@ class CloudTests(unittest.TestCase):
         with patch.object(runner, 'run', side_effect=responses):
             self.assertEqual(Cloud(sample(), runner).ensure(['describe'], ['create']), {'description': 'owned'})
 
+    def test_secret_readiness_requires_both_enabled_latest_versions(self):
+        for responses, expected in [
+            (['{"state":"ENABLED"}', '{"state":"ENABLED"}'], True),
+            ([CommandError('NOT_FOUND')], False),
+            (['{"state":"ENABLED"}', CommandError('NOT_FOUND')], False),
+            (['{"state":"DISABLED"}'], False),
+            (['{"state":"ENABLED"}', '{"state":"DESTROYED"}'], False),
+        ]:
+            with self.subTest(responses=responses), patch.object(FakeRunner, 'run', side_effect=responses):
+                self.assertEqual(Cloud(sample(), FakeRunner()).database_secrets_ready(), expected)
+
+    def test_secret_readiness_does_not_treat_permission_errors_as_missing(self):
+        with patch.object(FakeRunner, 'run', side_effect=CommandError('PERMISSION_DENIED')), \
+                self.assertRaisesRegex(CommandError, 'PERMISSION_DENIED'):
+            Cloud(sample(), FakeRunner()).database_secrets_ready()
+
     def test_secret_uses_stdin_not_arguments(self):
         runner = FakeRunner()
         Cloud(sample(), runner).add_secret_version('db', 'TOP_SECRET')
@@ -266,6 +282,7 @@ class StartupProbeTests(unittest.TestCase):
 
 class ReadOnlyRunner:
     current_project = 'active-project'
+    missing_secret = None
 
     def run(self, args, stdin=None):
         if args[:3] == ['gh', 'auth', 'status']:
@@ -278,6 +295,10 @@ class ReadOnlyRunner:
             return '{"projectNumber": "123456"}'
         if args[:4] == ['gcloud', 'billing', 'projects', 'describe']:
             return '{"billingEnabled": true}'
+        if args[:4] == ['gcloud', 'secrets', 'versions', 'describe']:
+            if self.missing_secret and any(arg.endswith('-' + self.missing_secret) for arg in args):
+                raise CommandError('NOT_FOUND: secret not found or has no versions')
+            return '{"state":"ENABLED"}'
         if args[0] == 'git':
             return 'git@github.com:ash/my-api.git'
         if args[:2] == ['gh', 'api']:
@@ -389,6 +410,38 @@ class WizardTests(unittest.TestCase):
             output = self.run_wizard(Path(directory), ['', 'my-project', '', '', '', '', 'yes'])
         self.assertEqual(provisioned, [(secret, direct)])
         self.assertNotIn('SECRET', output)
+
+    def test_resume_automatically_requests_url_if_either_secret_missing(self):
+        from dataclasses import replace
+        secret = 'postgresql://user:SECRET@ep-test.neon.tech/app?sslmode=require'
+        for missing in ('database', 'migrations'):
+            provisioned = []
+            def provision(cloud, database_url, migration_url):
+                provisioned.append((database_url, migration_url))
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(ReadOnlyRunner, 'missing_secret', missing), \
+                    patch('getpass.getpass', side_effect=[secret]), patch.object(Cloud, 'provision', provision):
+                root = Path(directory)
+                (root / 'deploy').mkdir()
+                (root / 'deploy/config.json').write_text(json.dumps(replace(sample(), public=True).to_dict(), indent=2) + '\n')
+                output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'yes'])
+                self.assertEqual(provisioned, [(secret, secret)])
+                self.assertIn('not saved or unavailable', output)
+                self.assertNotIn('SECRET', output)
+
+    def test_resume_keeps_saved_secrets_when_rotation_declined(self):
+        from dataclasses import replace
+        provisioned = []
+        def provision(cloud, database_url, migration_url):
+            provisioned.append((database_url, migration_url))
+        with tempfile.TemporaryDirectory() as directory, \
+                patch('getpass.getpass', side_effect=AssertionError('Unexpected secret prompt')), \
+                patch.object(Cloud, 'provision', provision):
+            root = Path(directory)
+            (root / 'deploy').mkdir()
+            (root / 'deploy/config.json').write_text(json.dumps(replace(sample(), public=True).to_dict(), indent=2) + '\n')
+            self.run_wizard(root, ['', 'my-project', '', '', '', '', 'no', 'yes'])
+            self.assertEqual(provisioned, [(None, None)])
 
 
 if __name__ == '__main__':

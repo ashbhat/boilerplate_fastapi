@@ -70,6 +70,20 @@ class Cloud:
     def add_secret_version(self, name, value):
         self.run(['secrets', 'versions', 'add', name, '--data-file=-'], stdin=value)
 
+    def database_secrets_ready(self):
+        """Check version metadata only; never retrieve the database credentials."""
+        for suffix in ('database', 'migrations'):
+            name = f'{self.c.resource_id}-{suffix}'
+            try:
+                version = json.loads(self.run(['secrets', 'versions', 'describe', 'latest', f'--secret={name}']))
+            except CommandError as exc:
+                if 'NOT_FOUND' in str(exc):
+                    return False
+                raise
+            if version.get('state') != 'ENABLED':
+                return False
+        return True
+
     def check_run_resources(self):
         for kind, name in (('services', self.c.service), ('jobs', f'{self.c.resource_id}-migrate')):
             try:

@@ -149,7 +149,11 @@ def setup(dry_run=False):
             print('Cancelled. No resources or files changed.')
             return
     same_resources = previous and (previous.project, previous.resource_id) == (c.project, c.resource_id)
-    replace = not same_resources or confirm('Paste a new Neon URL (rotate stored credentials)?', False)
+    cloud = Cloud(c, runner)
+    secrets_ready = same_resources and cloud.database_secrets_ready()
+    if same_resources and not secrets_ready:
+        print('Database credentials are not saved or unavailable. Please paste your Neon URL to finish setup.')
+    replace = not secrets_ready or confirm('Paste a new Neon URL (rotate stored credentials)?', False)
     database_url = migration_url = None
     if replace:
         print('\nCopy the PostgreSQL connection string from Neon. Input is hidden; do not paste a psql command.')
@@ -161,7 +165,7 @@ def setup(dry_run=False):
         return
     # Persist non-secret answers first so interrupted provisioning can be resumed.
     write_file(config_path, serialized)
-    Cloud(c, runner).provision(database_url, migration_url)
+    cloud.provision(database_url, migration_url)
     write_file(ROOT / '.github/workflows/deploy.yml', workflow)
     print('\nSetup complete. Review and commit deploy/config.json and .github/workflows/deploy.yml,')
     print(f'then push to {branch}. The workflow builds, migrates and deploys your API.')
