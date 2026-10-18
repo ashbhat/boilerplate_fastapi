@@ -101,7 +101,9 @@ def setup(dry_run=False):
     print('Set up deployment for this FastAPI project. No database is created in Neon.')
     print(f'Google Cloud account: {account}')
     choose('Deployment destination', ['Google Cloud — Cloud Run'])
-    project = ask('Existing Google Cloud project ID', previous.project if previous else None, validated('project'))
+    current_project = runner.run(['gcloud', 'config', 'get-value', 'project']).strip()
+    project_default = current_project if current_project not in ('', '(unset)') else (previous.project if previous else None)
+    project = ask('Existing Google Cloud project ID', project_default, validated('project'))
     project_info = json.loads(runner.run(['gcloud', 'projects', 'describe', project, '--format=json']))
     billing = json.loads(runner.run(['gcloud', 'billing', 'projects', 'describe', project, '--format=json']))
     if not billing.get('billingEnabled'):

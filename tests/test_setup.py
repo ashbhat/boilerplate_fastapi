@@ -228,11 +228,15 @@ class StartupProbeTests(unittest.TestCase):
 
 
 class ReadOnlyRunner:
+    current_project = 'active-project'
+
     def run(self, args, stdin=None):
         if args[:3] == ['gh', 'auth', 'status']:
             return ''
         if args[:3] == ['gcloud', 'auth', 'list']:
             return 'developer@example.com'
+        if args[:4] == ['gcloud', 'config', 'get-value', 'project']:
+            return self.current_project
         if args[:3] == ['gcloud', 'projects', 'describe']:
             return '{"projectNumber": "123456"}'
         if args[:4] == ['gcloud', 'billing', 'projects', 'describe']:
@@ -254,6 +258,30 @@ class WizardTests(unittest.TestCase):
                 contextlib.redirect_stdout(output):
             wizard.setup(dry_run=dry_run)
         return output.getvalue()
+
+    def test_enter_accepts_active_gcloud_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = self.run_wizard(Path(directory), [''] * 7, dry_run=True)
+            self.assertIn('Project: active-project |', output)
+
+    def test_typed_project_overrides_gcloud_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = self.run_wizard(Path(directory), ['', 'other-project', '', '', '', '', ''], dry_run=True)
+            self.assertIn('Project: other-project |', output)
+
+    def test_unset_gcloud_project_requires_input(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(ReadOnlyRunner, 'current_project', '(unset)'):
+            output = self.run_wizard(Path(directory), ['', '', 'typed-project', '', '', '', '', ''], dry_run=True)
+            self.assertIn('Please enter a value.', output)
+            self.assertIn('Project: typed-project |', output)
+
+    def test_active_project_is_default_even_with_saved_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'deploy').mkdir()
+            (root / 'deploy/config.json').write_text(json.dumps(sample().to_dict()))
+            output = self.run_wizard(root, [''] * 7, dry_run=True)
+            self.assertIn('Project: active-project |', output)
 
     def test_dry_run_never_prompts_for_secrets_or_writes_files(self):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', side_effect=AssertionError('Secret prompt')):
