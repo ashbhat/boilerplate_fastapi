@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
+from sqlalchemy import create_engine
 from sqlalchemy import pool
 
 from alembic import context
@@ -17,20 +17,7 @@ load_dotenv()
 # access to the values within the .ini file in use.
 config = context.config
 
-# Construct database URL
-def get_database_url():
-    host = os.getenv('DB_HOST', 'localhost')
-    port = os.getenv('DB_PORT', '5432')
-    db_name = os.getenv('DB_NAME', 'postgres')
-    user = os.getenv('DB_USER', 'postgres')
-    password = os.getenv('DB_PASSWORD', '')
-    
-    url = f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
-    print(f"Database URL: {url}")  # Add this line to print the URL
-    return url
-
-# Override sqlalchemy.url with dynamic configuration
-config.set_main_option('sqlalchemy.url', get_database_url())
+from api.database import get_database_url
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -55,7 +42,7 @@ def load_models():
     # Adjust path to go up two levels (one for _migrations, one for _meta)
     import_errors = False
 
-    for dirpath, dirnames, filenames in os.walk(root_path):
+    for dirpath, dirnames, filenames in os.walk(os.path.join(root_path, 'api')):
         # Ignore unwanted directories like your virtual environment or third-party packages
         if '.pythonlibs' in dirpath or 'site-packages' in dirpath or '_meta' in dirpath:
             continue
@@ -97,7 +84,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = get_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -111,13 +98,9 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    configuration = config.get_section(config.config_ini_section)
-    configuration["sqlalchemy.url"] = get_database_url()
-    connectable = engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # Pass the URL directly; ConfigParser interpolation would corrupt encoded
+    # credentials containing percent signs.
+    connectable = create_engine(get_database_url(), poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(
