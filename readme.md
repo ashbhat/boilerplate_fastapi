@@ -6,8 +6,8 @@ This boilerplate is designed to help get new FastAPI projects off the ground qui
 Create a new miniconda environment. [Install Miniconda](https://conda.io/projects/conda/en/latest/user-guide/install/index.html) first if you haven't already. This will let you create a virtual environment to give you a clean environment to work in.
 
 ```bash
-conda create -n fde_backend python=3.9
-conda activate fde_backend
+conda create -n boilerplate_backend python=3.9
+conda activate boilerplate_backend
 ```
 
 ## Step 2: Installing Requirements
@@ -20,7 +20,7 @@ pip install -r requirements.txt
 Create a local database with the following command. If you choose a different name, make sure to update it in your .env file.
 [Install Postgres](https://postgresapp.com) first if you haven't already. 
 ```bash
-createdb backend_db;
+createdb boilerplate_backend_db;
 ```
 
 Then, create your .env file. Make sure to set DB_USER and DB_PASS to the values on your machine. These are blank by default.
