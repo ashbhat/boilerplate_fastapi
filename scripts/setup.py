@@ -113,20 +113,22 @@ def setup(dry_run=False):
     if not repository_default:
         try:
             remote = runner.run(['git', '-C', str(ROOT), 'remote', 'get-url', 'origin'])
-            match = re.fullmatch(r'(?:git@github.com:|https://github.com/)([^/]+/[^/]+?)(?:\.git)?', remote)
+            match = re.fullmatch(r'(?:git@github.com:|https://github.com/|ssh://git@github.com/)([^/]+/[^/]+?)(?:\.git)?', remote)
             if match:
                 repository_default = match[1]
         except CommandError:
             pass
-    repository = ask('GitHub repository (owner/name)', repository_default, validated('repository'))
+    if not repository_default:
+        raise RuntimeError('Could not detect a GitHub repository. Set the git origin remote to your GitHub repository and rerun setup.')
+    repository = validated('repository')(repository_default)
     repo = json.loads(runner.run(['gh', 'api', f'repos/{repository}']))
     if not repo.get('permissions', {}).get('push', False):
         raise RuntimeError('Your GitHub account needs push access to this repository.')
     service_default = previous.service if previous else re.sub(r'[^a-z0-9-]', '-', repository.split('/')[1].lower())[:40].strip('-')
     if not service_default or not service_default[0].isalpha():
         service_default = 'my-api'
-    service = ask('Cloud Run service name', service_default, validated('service'))
-    branch = ask('Deploy when this branch is pushed', previous.branch if previous else repo['default_branch'], validated('branch'))
+    service = validated('service')(service_default)
+    branch = validated('branch')(previous.branch if previous else repo['default_branch'])
     public = True
     c = Config(project=project, project_number=str(project_info['projectNumber']), region=region,
                service=service, repository=repo['full_name'], repository_id=str(repo['id']),

@@ -282,6 +282,9 @@ class StartupProbeTests(unittest.TestCase):
 
 class ReadOnlyRunner:
     current_project = 'active-project'
+    remote = 'git@github.com:ash/my-api.git'
+    repository = 'ash/my-api'
+    default_branch = 'main'
     missing_secret = None
 
     def run(self, args, stdin=None):
@@ -300,10 +303,10 @@ class ReadOnlyRunner:
                 raise CommandError('NOT_FOUND: secret not found or has no versions')
             return '{"state":"ENABLED"}'
         if args[0] == 'git':
-            return 'git@github.com:ash/my-api.git'
+            return self.remote
         if args[:2] == ['gh', 'api']:
-            return json.dumps({'full_name': 'ash/my-api', 'id': 42, 'owner': {'id': 17},
-                               'default_branch': 'main', 'permissions': {'push': True}})
+            return json.dumps({'full_name': self.repository, 'id': 42, 'owner': {'id': 17},
+                               'default_branch': self.default_branch, 'permissions': {'push': True}})
         raise AssertionError(f'Unexpected command: {args}')
 
 
@@ -317,20 +320,47 @@ class WizardTests(unittest.TestCase):
             wizard.setup(dry_run=dry_run)
         return output.getvalue()
 
+    def test_repository_service_and_branch_are_detected_without_prompts(self):
+        for remote in ('git@github.com:ash/cool_api.git', 'https://github.com/ash/cool_api.git',
+                       'ssh://git@github.com/ash/cool_api.git'):
+            with self.subTest(remote=remote), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(ReadOnlyRunner, 'remote', remote), \
+                    patch.object(ReadOnlyRunner, 'repository', 'ash/cool_api'), \
+                    patch.object(ReadOnlyRunner, 'default_branch', 'develop'):
+                output = self.run_wizard(Path(directory), [''] * 3, dry_run=True)
+                self.assertIn('Service: cool-api', output)
+                self.assertIn('GitHub: ash/cool_api | Branch: develop', output)
+
+    def test_rerun_preserves_saved_service_and_branch(self):
+        from dataclasses import replace
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'deploy').mkdir()
+            saved = replace(sample(), service='custom-service', branch='release')
+            (root / 'deploy/config.json').write_text(json.dumps(saved.to_dict()))
+            output = self.run_wizard(root, [''] * 3, dry_run=True)
+            self.assertIn('Service: custom-service', output)
+            self.assertIn('Branch: release', output)
+
+    def test_unrecognized_remote_explains_how_to_configure_origin(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(ReadOnlyRunner, 'remote', '/local/repo'), \
+                self.assertRaisesRegex(RuntimeError, 'origin'):
+            self.run_wizard(Path(directory), [''] * 3, dry_run=True)
+
     def test_enter_accepts_active_gcloud_project(self):
         with tempfile.TemporaryDirectory() as directory:
-            output = self.run_wizard(Path(directory), [''] * 6, dry_run=True)
+            output = self.run_wizard(Path(directory), [''] * 3, dry_run=True)
             self.assertIn('Project: active-project |', output)
             self.assertIn('Access: public', output)
 
     def test_typed_project_overrides_gcloud_default(self):
         with tempfile.TemporaryDirectory() as directory:
-            output = self.run_wizard(Path(directory), ['', 'other-project', '', '', '', ''], dry_run=True)
+            output = self.run_wizard(Path(directory), ['', 'other-project', ''], dry_run=True)
             self.assertIn('Project: other-project |', output)
 
     def test_unset_gcloud_project_requires_input(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(ReadOnlyRunner, 'current_project', '(unset)'):
-            output = self.run_wizard(Path(directory), ['', '', 'typed-project', '', '', '', ''], dry_run=True)
+            output = self.run_wizard(Path(directory), ['', '', 'typed-project', ''], dry_run=True)
             self.assertIn('Please enter a value.', output)
             self.assertIn('Project: typed-project |', output)
 
@@ -339,14 +369,14 @@ class WizardTests(unittest.TestCase):
             root = Path(directory)
             (root / 'deploy').mkdir()
             (root / 'deploy/config.json').write_text(json.dumps(sample().to_dict()))
-            output = self.run_wizard(root, [''] * 6, dry_run=True)
+            output = self.run_wizard(root, [''] * 3, dry_run=True)
             self.assertIn('Project: active-project |', output)
             self.assertIn('Access: public', output)
 
     def test_dry_run_never_prompts_for_secrets_or_writes_files(self):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', side_effect=AssertionError('Secret prompt')):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', ''], dry_run=True)
+            output = self.run_wizard(root, ['', 'my-project', ''], dry_run=True)
             self.assertEqual(list(root.iterdir()), [])
             self.assertIn('Preview only', output)
             self.assertIn('name: Deploy', output)
@@ -356,7 +386,7 @@ class WizardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', return_value=secret), \
                 patch.object(Cloud, 'provision', side_effect=AssertionError('Unexpected provisioning')):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'no'])
+            output = self.run_wizard(root, ['', 'my-project', '', 'no'])
             self.assertEqual(list(root.iterdir()), [])
             self.assertNotIn('SECRET', output)
             self.assertIn('Cancelled', output)
@@ -367,7 +397,7 @@ class WizardTests(unittest.TestCase):
                 patch.object(Cloud, 'provision', side_effect=CommandError('PERMISSION_DENIED')):
             root = Path(directory)
             with self.assertRaises(CommandError):
-                self.run_wizard(root, ['', 'my-project', '', '', '', '', 'yes'])
+                self.run_wizard(root, ['', 'my-project', '', 'yes'])
             self.assertNotIn('SECRET', (root / 'deploy/config.json').read_text())
             self.assertFalse((root / '.github/workflows/deploy.yml').exists())
 
@@ -377,7 +407,7 @@ class WizardTests(unittest.TestCase):
             target = root / '.github/workflows/deploy.yml'
             target.parent.mkdir(parents=True)
             target.write_text('user changes\n')
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'no'])
+            output = self.run_wizard(root, ['', 'my-project', '', 'no'])
             self.assertEqual(target.read_text(), 'user changes\n')
             self.assertIn('Cancelled', output)
 
@@ -389,7 +419,7 @@ class WizardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', return_value=secret), \
                 patch.object(Cloud, 'provision', provision):
             root = Path(directory)
-            output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'yes'])
+            output = self.run_wizard(root, ['', 'my-project', '', 'yes'])
             self.assertEqual(provisioned, [(secret, secret)])
             self.assertTrue(json.loads((root / 'deploy/config.json').read_text())['public'])
             from dataclasses import replace
@@ -407,7 +437,7 @@ class WizardTests(unittest.TestCase):
             provisioned.append((database_url, migration_url))
         with tempfile.TemporaryDirectory() as directory, patch('getpass.getpass', side_effect=[secret]), \
                 patch.object(Cloud, 'provision', provision):
-            output = self.run_wizard(Path(directory), ['', 'my-project', '', '', '', '', 'yes'])
+            output = self.run_wizard(Path(directory), ['', 'my-project', '', 'yes'])
         self.assertEqual(provisioned, [(secret, direct)])
         self.assertNotIn('SECRET', output)
 
@@ -424,7 +454,7 @@ class WizardTests(unittest.TestCase):
                 root = Path(directory)
                 (root / 'deploy').mkdir()
                 (root / 'deploy/config.json').write_text(json.dumps(replace(sample(), public=True).to_dict(), indent=2) + '\n')
-                output = self.run_wizard(root, ['', 'my-project', '', '', '', '', 'yes'])
+                output = self.run_wizard(root, ['', 'my-project', '', 'yes'])
                 self.assertEqual(provisioned, [(secret, secret)])
                 self.assertIn('not saved or unavailable', output)
                 self.assertNotIn('SECRET', output)
@@ -440,7 +470,7 @@ class WizardTests(unittest.TestCase):
             root = Path(directory)
             (root / 'deploy').mkdir()
             (root / 'deploy/config.json').write_text(json.dumps(replace(sample(), public=True).to_dict(), indent=2) + '\n')
-            self.run_wizard(root, ['', 'my-project', '', '', '', '', 'no', 'yes'])
+            self.run_wizard(root, ['', 'my-project', '', 'no', 'yes'])
             self.assertEqual(provisioned, [(None, None)])
 
 
