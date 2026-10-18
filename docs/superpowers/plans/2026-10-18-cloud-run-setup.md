@@ -41,7 +41,11 @@ is part of development validation; first cloud deployment remains an explicit li
 
 ## Verification results
 
-29 tests passed including real PostgreSQL 16 migration roundtrip. Docker image built
+30 tests passed including real PostgreSQL 16 migration roundtrip. Docker image built
 and returned healthz successfully as a non-root user. CI and rendered deployment
 YAML passed actionlint 1.7.7. Independent review found no actionable issues.
 Live GCP provisioning, GitHub OIDC exchange and Neon deployment remain unverified.
+
+GitHub CI exposed a connection-reset startup race. Added a real HTTP reset
+regression test, observed failure, and made the CI probe retry startup errors
+with bounded request/retry timeouts.

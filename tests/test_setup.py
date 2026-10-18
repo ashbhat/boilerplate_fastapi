@@ -179,5 +179,49 @@ class FullProvisionTests(unittest.TestCase):
         self.assertNotIn('SECRET', ' '.join(' '.join(args) for args, _ in runner.calls))
 
 
+class StartupProbeTests(unittest.TestCase):
+    def test_ci_probe_retries_connection_reset_during_startup(self):
+        import http.server
+        import socket
+        import struct
+        import subprocess
+        import shlex
+        import threading
+        import yaml
+        from scripts.bootstrap.config import ROOT
+
+        class StartingServer(http.server.BaseHTTPRequestHandler):
+            requests = 0
+
+            def do_GET(self):
+                StartingServer.requests += 1
+                if StartingServer.requests == 1:
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+                    self.connection.close()
+                    return
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'healthy')
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), StartingServer)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            workflow = yaml.load((ROOT / '.github/workflows/ci.yml').read_text(), Loader=yaml.BaseLoader)
+            command = workflow['jobs']['test']['steps'][-1]['run'].strip().splitlines()[-1]
+            command = command.replace('http://localhost:8080', f'http://127.0.0.1:{server.server_port}')
+            result = subprocess.run(shlex.split(command), capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('healthy', result.stdout)
+            self.assertGreaterEqual(StartingServer.requests, 2)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+
 if __name__ == '__main__':
     unittest.main()
