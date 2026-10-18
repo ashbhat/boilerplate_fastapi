@@ -87,5 +87,5 @@ jobs:
             --impersonate-service-account="$DEPLOYER" --audiences="$SERVICE_URL" --include-email)
           echo "::add-mask::$token"
           curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
-            --max-time 30 -H "Authorization: Bearer $token" "$SERVICE_URL/healthz"
+            --max-time 30 -H "Authorization: Bearer $token" "$SERVICE_URL/"
           echo "Deployed API: $SERVICE_URL" >> "$GITHUB_STEP_SUMMARY"

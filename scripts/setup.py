@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Interactive Neon / Cloud Run bootstrap. Requires Python 3.9+, gcloud and gh."""
 import argparse
+import getpass
+import warnings
 import difflib
 import json
 import re
@@ -12,7 +14,51 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.bootstrap.cloud import Cloud, CommandError, Runner
 from scripts.bootstrap.config import Config, ROOT, neon_url, render_workflow
-from scripts.bootstrap.prompts import ask, choose, confirm
+
+
+def ask(label, default=None, validate=None, secret=False):
+    while True:
+        suffix = f' [{default}]' if default is not None else ''
+        if secret:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', getpass.GetPassWarning)
+                try:
+                    value = getpass.getpass(f'{label}: ').strip()
+                except getpass.GetPassWarning as exc:
+                    raise RuntimeError('A terminal is required for hidden database input.') from exc
+        else:
+            value = input(f'{label}{suffix}: ').strip()
+        value = value or default
+        if not value:
+            print('Please enter a value.')
+            continue
+        try:
+            return validate(value) if validate else value
+        except ValueError as exc:
+            print(str(exc))
+
+
+def confirm(label, default=False):
+    while True:
+        value = input(f'{label} [{"Y/n" if default else "y/N"}]: ').strip().lower()
+        if not value:
+            return default
+        if value in ('yes', 'y'):
+            return True
+        if value in ('no', 'n'):
+            return False
+        print('Please answer yes or no.')
+
+
+def choose(label, options):
+    print(label)
+    for i, option in enumerate(options, 1):
+        print(f'  {i}. {option}')
+    while True:
+        value = input('Choose a number [1]: ').strip() or '1'
+        if value.isdigit() and 1 <= int(value) <= len(options):
+            return int(value) - 1
+        print(f'Choose a number from 1 to {len(options)}.')
 
 
 def validated(field):
@@ -45,7 +91,7 @@ def setup(dry_run=False):
     runner = Runner()
     for executable in ('gcloud', 'gh', 'git'):
         if not shutil.which(executable):
-            raise RuntimeError(f'Install {executable} first. See readme.md for prerequisites.')
+            raise RuntimeError(f'Install {executable} first, then rerun setup. Sign in with gcloud auth login and gh auth login.')
     runner.run(['gh', 'auth', 'status'])
     account = runner.run(['gcloud', 'auth', 'list', '--filter=status:ACTIVE', '--format=value(account)'])
     if not account:

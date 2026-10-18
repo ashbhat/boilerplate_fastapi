@@ -46,26 +46,12 @@ uvicorn main:app --reload --port 8001
 ```
 
 ## Step 5: Deploy to Services
-When you're ready to deploy, you can run the setup script to configure your deployment. Google Cloud Run with a Neon database is currently supported.
-
-For first-time setup, create a Neon database and a Google Cloud project with billing enabled. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) and [GitHub CLI](https://cli.github.com/), then sign in and run:
+Run the setup script and follow the prompts to configure your deployment. Google Cloud Run with Neon is currently supported.
 
 ```bash
-gcloud auth login
-gh auth login
 python scripts/setup.py
 ```
 
-The script asks you to choose a deployment destination, paste your Neon connection string, and provide your Google Cloud project and GitHub repository details. It asks before creating the supporting resources and generates `.github/workflows/deploy.yml` and `deploy/config.json`. Database credentials are stored in Secret Manager.
+The script sets up the supporting resources and creates or updates `.github/workflows/deploy.yml`, asking before overwriting changes. Commit the generated files and push to your configured deployment branch to deploy.
 
-If you need to update your deployment configuration later, run the same script again. It reuses existing resources and shows changes before asking to overwrite your deploy YAML. You can preview setup without making changes with:
-
-```bash
-python scripts/setup.py --dry-run
-```
-
-After setup, review and commit the generated files, then push to your configured deployment branch. GitHub Actions will run checks, apply database migrations, and deploy your API.
-
-**Already configured?** You don't need to run the script again unless your setup needs to change. Keep your existing deploy YAML and push to the configured branch to deploy as usual. Once the workflow is on your default branch, you can also use **Actions → Deploy → Run workflow** and select the configured deployment branch.
-
-See [the deployment reference](docs/deployment.md) for permissions, connection options, and troubleshooting.
+Already configured? Keep using your existing workflow. Run the script again only when you need to update your setup.

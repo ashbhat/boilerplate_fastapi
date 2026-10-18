@@ -54,9 +54,9 @@ class DatabaseTests(unittest.TestCase):
 
 
 class ApiTests(unittest.TestCase):
-    def test_health_endpoint(self):
+    def test_root_endpoint(self):
         from fastapi.testclient import TestClient
         from main import app
-        response = TestClient(app).get('/healthz')
+        response = TestClient(app).get('/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'status': 'ok'})
+        self.assertEqual(response.json(), {'message': 'Hello World'})

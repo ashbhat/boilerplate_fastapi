@@ -186,6 +186,5 @@ cython_debug/
 .pypirc
 # Cloud auth and local secrets
 .env.*
-!.env.example
 gha-creds-*.json
 deploy/*.tmp
