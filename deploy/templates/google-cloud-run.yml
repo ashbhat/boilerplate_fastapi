@@ -66,23 +66,23 @@ jobs:
           migration_status=0
           gcloud run jobs execute "$RESOURCE-migrate" \
             --project="$PROJECT" --region="$REGION" --wait --quiet || migration_status=$?
-          finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          echo "::group::Migration logs (this run's time window; up to 1000 entries)"
-          # Cloud Logging ingestion can lag behind job completion.
+          finished=$(python -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())')
+          echo "::group::Migration logs (latest 1000 entries in this run's time window; newest first)"
+          # Always refresh for 10 seconds: startup entries may arrive before errors.
           for attempt in 1 2 3; do
             logs=''
             log_status=0
             logs=$(gcloud run jobs logs read "$RESOURCE-migrate" \
-              --project="$PROJECT" --region="$REGION" --order=asc --limit=1000 \
+              --project="$PROJECT" --region="$REGION" --order=desc --limit=1000 \
               --log-filter="timestamp>=\"$started\" AND timestamp<=\"$finished\"") || log_status=$?
-            printf '%s\n' "$logs"
             if [ "$log_status" -ne 0 ]; then
               echo "::warning::Could not read migration logs. Rerun setup to grant the deployer Logs Viewer access."
               break
             fi
-            if [ -n "$logs" ]; then break; fi
             if [ "$attempt" -lt 3 ]; then sleep 5; fi
           done
+          printf '%s\n' "$logs"
+          echo "Cloud Logging may deliver further entries after this bounded collection window."
           if [ -z "$logs" ]; then
             echo "::warning::Migration logs are not available yet; check Cloud Logging if needed."
           fi

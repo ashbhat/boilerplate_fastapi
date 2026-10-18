@@ -509,18 +509,30 @@ class MigrationLogTests(unittest.TestCase):
                 binary.write_text('''#!/bin/bash
 if [[ "$*" == "run jobs execute "* ]]; then exit "$MIGRATION_STATUS"; fi
 if [[ "$*" == "run jobs logs read "* ]]; then
-  echo "migration log output"
+  case " $* " in *" --order=desc "*) ;; *) exit 99 ;; esac
+  if [ -f "$READ_MARKER" ]; then
+    echo "migration log output: final traceback"
+  else
+    touch "$READ_MARKER"
+    echo "migration log output: starting"
+  fi
   exit "$LOG_STATUS"
 fi
 ''')
                 binary.chmod(0o755)
+                sleeper = Path(directory) / 'sleep'
+                sleeper.write_text('#!/bin/sh\nexit 0\n')
+                sleeper.chmod(0o755)
                 env = {**os.environ, 'PATH': directory + os.pathsep + os.environ['PATH'],
                        'PROJECT': 'project', 'REGION': 'us-central1', 'IMAGE': 'image',
                        'RESOURCE': 'sample', 'RUNTIME': 'runtime',
+                       'READ_MARKER': str(Path(directory) / 'read'),
                        'MIGRATION_STATUS': str(migration_status), 'LOG_STATUS': str(log_status)}
                 result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
                 self.assertEqual(result.returncode, migration_status, result.stderr)
                 self.assertIn('migration log output', result.stdout)
+                if log_status == 0:
+                    self.assertIn('final traceback', result.stdout)
 
 
 if __name__ == '__main__':

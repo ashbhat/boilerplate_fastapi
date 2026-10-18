@@ -14,7 +14,7 @@ from pathlib import Path
 # Works from any directory without installing this repository as a package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.bootstrap.cloud import Cloud, CommandError, Runner
-from scripts.bootstrap.github import open_deployment_pr
+from scripts.bootstrap.github import open_deployment_pr, post_merge_commands
 from scripts.bootstrap.config import Config, ROOT, neon_url, direct_neon_url, render_workflow
 
 
@@ -195,6 +195,9 @@ def setup(dry_run=False):
         report('Merging starts the Deploy workflow: checks → build → migrations → public API.')
         report(f'Follow deployment: https://github.com/{c.repository}/actions')
         report('The successful Deploy run summary will contain your API URL.')
+        report('After merging, run these commands from this checkout; stop if any command fails:', 'prompt')
+        print(post_merge_commands(c))
+        report('This backs up the generated files before pulling. Keep the stash as a backup; do not pop it over the merged configuration.')
     elif pr_url is None:
         report('Next: use Actions → Deploy → Run workflow to deploy the current configuration.', 'prompt')
         report(f'Select branch {branch}: https://github.com/{c.repository}/actions')

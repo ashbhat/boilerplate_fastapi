@@ -2,12 +2,22 @@
 import json
 import os
 import re
+import shlex
 import tempfile
 from pathlib import Path
 
 from scripts.bootstrap.cloud import CommandError
 
 GENERATED = ('deploy/config.json', '.github/workflows/deploy.yml')
+
+
+def post_merge_commands(config):
+    """Back up generated files before pulling their newly tracked equivalents."""
+    branch = shlex.quote(config.branch)
+    return ("git stash push --include-untracked -m 'deployment setup backup' -- "
+            + ' '.join(GENERATED) + ' &&\n'
+            + f'git switch {branch} &&\n'
+            + f'git pull --ff-only origin {branch}')
 
 
 def open_deployment_pr(config, runner, root, confirm, report=print):
@@ -75,6 +85,10 @@ def open_deployment_pr(config, runner, root, confirm, report=print):
             f'Merging into `{config.branch}` triggers CI, image publishing, database migrations, '
             'and deployment of the public API. Wait for CI to pass before merging. '
             'The Deploy workflow summary will contain the API URL.\n'
+            '\nAfter merging, run these commands from your setup checkout, stopping if any command fails. '
+            'They back up only the generated files so they do not block pulling the merged versions. '
+            'Keep the stash as a backup; do not pop it over the merged configuration.\n\n'
+            f'```bash\n{post_merge_commands(config)}\n```\n'
         )
         return runner.run(['gh', 'pr', 'create', '--repo', config.repository, '--base', config.branch,
                            '--head', head, '--title', 'Configure Cloud Run deployment', '--body-file', str(body)])

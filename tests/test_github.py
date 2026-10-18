@@ -149,3 +149,18 @@ class DeploymentPRTests(unittest.TestCase):
         self.git('push', 'origin', 'HEAD:main')
         self.assertIsNone(self.publish())
         self.assertEqual(self.runner.github, [])
+
+    def test_post_merge_instructions_allow_pull_and_keep_generated_backup(self):
+        from scripts.bootstrap.github import post_merge_commands
+        self.publish()
+        args = self.runner.github[-1]
+        branch = args[args.index('--head') + 1]
+        commit = self.command('git', '--git-dir', str(self.remote), 'rev-parse', branch)
+        self.command('git', '--git-dir', str(self.remote), 'update-ref', 'refs/heads/main', commit)
+        subprocess.run(['bash', '-e', '-c', post_merge_commands(self.config)], cwd=self.root,
+                       check=True, capture_output=True, text=True)
+        self.assertEqual(self.git('branch', '--show-current'), 'main')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), commit)
+        self.assertEqual(self.git('status', '--porcelain'), '')
+        self.assertIn('deployment setup backup', self.git('stash', 'list'))
+        self.assertEqual(self.git('show', 'stash@{0}^3:deploy/config.json'), '{"project":"my-project"}')
