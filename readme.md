@@ -27,7 +27,7 @@ Then, create your .env file. Make sure to set DB_USER and DB_PASS to the values 
 ```bash
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=backend_db
+DB_NAME=boilerplate_backend_db
 DB_USER=
 DB_PASSWORD=
 ```
