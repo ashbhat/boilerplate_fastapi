@@ -77,6 +77,41 @@ class CloudTests(unittest.TestCase):
         Cloud(sample(), runner).ensure(['secrets', 'describe', 'db'], ['secrets', 'create', 'db'])
         self.assertEqual(len(runner.calls), 1)
 
+    def test_new_account_visibility_is_retried_without_recreating(self):
+        runner = FakeRunner()
+        responses = [CommandError('NOT_FOUND'), '{}', CommandError('NOT_FOUND'),
+                     CommandError('NOT_FOUND'), '{"description":"owned"}']
+        with patch.object(runner, 'run', side_effect=responses) as run, \
+                patch('scripts.bootstrap.cloud.time.sleep') as sleep, patch('sys.stdout', new=io.StringIO()):
+            result = Cloud(sample(), runner).ensure(['describe'], ['create'])
+        self.assertEqual(result, {'description': 'owned'})
+        self.assertEqual([call.args[0][1] for call in run.call_args_list],
+                         ['describe', 'create', 'describe', 'describe', 'describe'])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 4])
+
+    def test_visibility_retries_stop_on_permission_denied(self):
+        runner = FakeRunner()
+        with patch.object(runner, 'run', side_effect=[CommandError('NOT_FOUND'), '{}',
+                                                     CommandError('PERMISSION_DENIED')]), \
+                patch('scripts.bootstrap.cloud.time.sleep') as sleep, self.assertRaisesRegex(CommandError, 'PERMISSION_DENIED'):
+            Cloud(sample(), runner).ensure(['describe'], ['create'])
+        sleep.assert_not_called()
+
+    def test_visibility_retries_are_bounded(self):
+        runner = FakeRunner()
+        responses = [CommandError('NOT_FOUND'), '{}'] + [CommandError('NOT_FOUND')] * 7
+        with patch.object(runner, 'run', side_effect=responses), \
+                patch('scripts.bootstrap.cloud.time.sleep') as sleep, patch('sys.stdout', new=io.StringIO()), \
+                self.assertRaisesRegex(CommandError, 'still not visible'):
+            Cloud(sample(), runner).ensure(['describe'], ['create'])
+        self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), 90)
+
+    def test_stale_lookup_already_exists_reads_existing_resource(self):
+        runner = FakeRunner()
+        responses = [CommandError('NOT_FOUND'), CommandError('ALREADY_EXISTS'), '{"description":"owned"}']
+        with patch.object(runner, 'run', side_effect=responses):
+            self.assertEqual(Cloud(sample(), runner).ensure(['describe'], ['create']), {'description': 'owned'})
+
     def test_secret_uses_stdin_not_arguments(self):
         runner = FakeRunner()
         Cloud(sample(), runner).add_secret_version('db', 'TOP_SECRET')

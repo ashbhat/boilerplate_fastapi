@@ -1,6 +1,7 @@
 """Google Cloud bootstrap. All commands use argv, never a shell."""
 import json
 import subprocess
+import time
 
 
 class CommandError(RuntimeError):
@@ -34,8 +35,24 @@ class Cloud:
         except CommandError as exc:
             if 'NOT_FOUND' not in str(exc):
                 raise
-        self.run(create)
-        return json.loads(self.run(describe) or '{}')
+        try:
+            self.run(create)
+        except CommandError as exc:
+            # A previous run may have created it while reads were still stale.
+            if 'ALREADY_EXISTS' not in str(exc):
+                raise
+        # IAM reads are eventually consistent after creation. Retry only missing
+        # resources; permissions and other failures still surface immediately.
+        for delay in (2, 4, 8, 16, 30, 30, None):
+            try:
+                return json.loads(self.run(describe) or '{}')
+            except CommandError as exc:
+                if 'NOT_FOUND' not in str(exc):
+                    raise
+                if delay is None:
+                    raise CommandError('Created resource is still not visible after retries. Wait a minute and rerun setup. ' + str(exc)) from exc
+                print(f'Waiting for Google Cloud to make the resource visible; retrying in {delay}s...')
+                time.sleep(delay)
 
     def owned(self, describe, create, *, account=False):
         data = self.ensure(describe, create)
